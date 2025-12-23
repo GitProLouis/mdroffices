@@ -1,0 +1,566 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Package, 
+  ShoppingCart, 
+  Plus, 
+  Trash2, 
+  RefreshCw, 
+  ChefHat, 
+  CheckCircle, 
+  AlertCircle, 
+  Search,
+  Filter,
+  DollarSign,
+  TrendingUp,
+  Save,
+  X
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithCustomToken, 
+  signInAnonymously, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  orderBy,
+  serverTimestamp,
+  updateDoc,
+  getDocs,
+  writeBatch
+} from 'firebase/firestore';
+
+// --- Firebase Configuration ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// --- Constants & Types ---
+const CATEGORIES = [
+  'Protein', 'Produce', 'Pantry', 'Dairy', 'Household', 'Snacks', 'Beverage', 'Health', 'Ops'
+];
+
+const STORES = [
+  'Spar', 'Checkers', 'Woolworths', 'Fruit Market', 'West Pack', 'Pharmacy', 'Other'
+];
+
+const INITIAL_DATA = [
+  { name: 'Eggs (Large)', category: 'Protein', stock: 'high', store: 'Spar', price: 59.99, unit: '30 Doz' },
+  { name: 'Rotisserie Chicken', category: 'Protein', stock: 'high', store: 'Spar', price: 109.99, unit: 'Each' },
+  { name: 'Bananas', category: 'Produce', stock: 'medium', store: 'Spar', price: 19.99, unit: 'Box/Bunch' },
+  { name: 'Dates', category: 'Pantry', stock: 'high', store: 'Fruit Market', price: 99.00, unit: '1kg' },
+  { name: 'Oats (Rolled)', category: 'Pantry', stock: 'high', store: 'Fruit Market', price: 39.99, unit: '1kg' },
+  { name: 'Toilet Tissue', category: 'Household', stock: 'medium', store: 'West Pack', price: 39.50, unit: '9pk' },
+  { name: 'Pilchards', category: 'Protein', stock: 'medium', store: 'Spar', price: 27.00, unit: 'Tin' },
+  { name: 'Brown Bread', category: 'Pantry', stock: 'high', store: 'Spar', price: 11.99, unit: 'Loaf' },
+  { name: 'Milk (Full Cream)', category: 'Dairy', stock: 'medium', store: 'Checkers', price: 18.99, unit: '2L' },
+];
+
+// --- Components ---
+
+const StatusBadge = ({ status }) => {
+  const styles = {
+    high: 'bg-green-100 text-green-800 border-green-200',
+    medium: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    low: 'bg-orange-100 text-orange-800 border-orange-200',
+    out: 'bg-red-100 text-red-800 border-red-200',
+  };
+  
+  const labels = {
+    high: 'In Stock',
+    medium: 'OK',
+    low: 'Low',
+    out: 'Out of Stock'
+  };
+
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${styles[status] || styles.high}`}>
+      {labels[status]}
+    </span>
+  );
+};
+
+const AddItemModal = ({ isOpen, onClose, onAdd }) => {
+  const [newItem, setNewItem] = useState({
+    name: '',
+    category: 'Pantry',
+    store: 'Spar',
+    price: '',
+    unit: ''
+  });
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onAdd({
+      ...newItem,
+      price: parseFloat(newItem.price) || 0,
+      stock: 'high' // Default new items to high stock
+    });
+    setNewItem({ name: '', category: 'Pantry', store: 'Spar', price: '', unit: '' });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+          <h3 className="font-semibold text-lg text-slate-800">Add New Inventory Item</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Item Name</label>
+            <input 
+              required
+              type="text" 
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="e.g., Greek Yoghurt"
+              value={newItem.name}
+              onChange={(e) => setNewItem({...newItem, name: e.target.value})}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+              <select 
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                value={newItem.category}
+                onChange={(e) => setNewItem({...newItem, category: e.target.value})}
+              >
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Store</label>
+              <select 
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                value={newItem.store}
+                onChange={(e) => setNewItem({...newItem, store: e.target.value})}
+              >
+                {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Est. Price (R)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="0.00"
+                value={newItem.price}
+                onChange={(e) => setNewItem({...newItem, price: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
+              <input 
+                type="text" 
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="e.g. kg, box"
+                value={newItem.unit}
+                onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
+              />
+            </div>
+          </div>
+          <button 
+            type="submit" 
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors mt-4"
+          >
+            Add to Library
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Component ---
+
+export default function HouseholdOpsApp() {
+  const [user, setUser] = useState(null);
+  const [items, setItems] = useState([]);
+  const [activeTab, setActiveTab] = useState('inventory');
+  const [filterCategory, setFilterCategory] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // --- Auth & Data Loading ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Auth Error:", error);
+      }
+    };
+    initAuth();
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+    const unsubscribeData = onSnapshot(q, (snapshot) => {
+      const inventoryData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setItems(inventoryData);
+      setIsLoading(false);
+    }, (error) => {
+      console.error("Data Fetch Error:", error);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribeData();
+  }, [user]);
+
+  // --- Actions ---
+
+  const seedData = async () => {
+    if (!user) return;
+    setIsLoading(true);
+    const batch = writeBatch(db);
+    
+    INITIAL_DATA.forEach(item => {
+      const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
+      batch.set(docRef, { ...item, updatedAt: serverTimestamp() });
+    });
+
+    try {
+      await batch.commit();
+      setIsLoading(false);
+    } catch (e) {
+      console.error("Seeding error", e);
+      setIsLoading(false);
+    }
+  };
+
+  const updateStock = async (id, newStatus) => {
+    if (!user) return;
+    try {
+      const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id);
+      await updateDoc(itemRef, { 
+        stock: newStatus,
+        updatedAt: serverTimestamp() 
+      });
+    } catch (e) {
+      console.error("Update error", e);
+    }
+  };
+
+  const addItem = async (itemData) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory')), {
+        ...itemData,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error("Add error", e);
+    }
+  };
+
+  const deleteItem = async (id) => {
+    if (!user) return;
+    if (confirm('Delete this item permanently?')) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id));
+      } catch (e) { console.error(e); }
+    }
+  };
+
+  const markPurchased = async (id) => {
+    // When bought, reset stock to 'high'
+    await updateStock(id, 'high');
+  };
+
+  // --- Derived Data ---
+
+  const filteredItems = items.filter(item => {
+    const matchesCategory = filterCategory === 'All' || item.category === filterCategory;
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const shoppingList = items.filter(item => item.stock === 'low' || item.stock === 'out');
+  const estimatedTotal = shoppingList.reduce((sum, item) => sum + (item.price || 0), 0);
+
+  // --- Views ---
+
+  const InventoryView = () => (
+    <div className="space-y-4 pb-24">
+      <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+          <button 
+            onClick={() => setFilterCategory('All')}
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filterCategory === 'All' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
+          >
+            All Items
+          </button>
+          {CATEGORIES.map(cat => (
+            <button 
+              key={cat} 
+              onClick={() => setFilterCategory(cat)}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filterCategory === cat ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+        
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search pantry..." 
+            className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filteredItems.map(item => (
+          <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between transition-all hover:shadow-md">
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <h3 className="font-semibold text-slate-800 text-lg">{item.name}</h3>
+                  <p className="text-xs text-slate-500 font-medium">{item.category} • {item.store}</p>
+                </div>
+                <StatusBadge status={item.stock} />
+              </div>
+              <div className="text-xs text-slate-400 mb-4">
+                 Unit: {item.unit || '-'} | Est: R{item.price?.toFixed(2)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-auto">
+              <button 
+                onClick={() => updateStock(item.id, 'high')}
+                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'high' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-green-100 hover:text-green-700'}`}
+              >
+                In Stock
+              </button>
+              <button 
+                onClick={() => updateStock(item.id, 'low')}
+                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'low' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-orange-100 hover:text-orange-700'}`}
+              >
+                Low
+              </button>
+              <button 
+                onClick={() => updateStock(item.id, 'out')}
+                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'out' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-700'}`}
+              >
+                Empty
+              </button>
+            </div>
+          </div>
+        ))}
+        {filteredItems.length === 0 && (
+          <div className="col-span-full text-center py-12 text-slate-400">
+            <Package className="mx-auto mb-2 opacity-50" size={48} />
+            <p>No items found. Add some or check filters.</p>
+          </div>
+        )}
+      </div>
+      <button 
+        onClick={() => setIsModalOpen(true)}
+        className="fixed bottom-24 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-transform hover:scale-105 z-20"
+      >
+        <Plus size={24} />
+      </button>
+    </div>
+  );
+
+  const ShoppingListView = () => (
+    <div className="space-y-6 pb-24">
+      <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg">
+        <h2 className="text-2xl font-bold mb-1">Shopping List</h2>
+        <p className="text-indigo-100 text-sm mb-4">Items marked Low or Out</p>
+        <div className="flex justify-between items-end">
+          <div>
+            <div className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">Est. Total</div>
+            <div className="text-3xl font-bold">R {estimatedTotal.toFixed(2)}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-bold">{shoppingList.length}</div>
+            <div className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">Items</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {shoppingList.length === 0 ? (
+          <div className="text-center py-12 px-4">
+             <CheckCircle className="mx-auto mb-4 text-green-500" size={48} />
+             <h3 className="text-lg font-medium text-slate-800">All Stocked Up!</h3>
+             <p className="text-slate-500">Inventory is healthy. No items marked as Low or Out.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {shoppingList.map(item => (
+              <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => markPurchased(item.id)}
+                    className="h-6 w-6 rounded-full border-2 border-slate-300 hover:border-green-500 hover:bg-green-50 transition-colors flex items-center justify-center group"
+                    title="Mark Purchased"
+                  >
+                     <CheckCircle size={14} className="opacity-0 group-hover:opacity-100 text-green-600" />
+                  </button>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-800">{item.name}</span>
+                      {item.stock === 'out' && (
+                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold uppercase tracking-wide">
+                          Critical
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {item.store} • R{item.price?.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                   <button 
+                     onClick={() => deleteItem(item.id)} 
+                     className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                   >
+                     <Trash2 size={16} />
+                   </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {shoppingList.length > 0 && (
+         <div className="flex justify-center">
+            <button onClick={() => window.print()} className="flex items-center gap-2 text-slate-500 hover:text-slate-700 text-sm font-medium">
+               <Save size={16} /> Print / Save PDF
+            </button>
+         </div>
+      )}
+    </div>
+  );
+
+  // --- Render ---
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="h-12 w-12 bg-blue-200 rounded-full mb-4"></div>
+          <div className="h-4 w-32 bg-slate-200 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // First run seeding
+  if (items.length === 0 && !isLoading) {
+     return (
+       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+         <ChefHat size={64} className="text-blue-600 mb-6" />
+         <h1 className="text-2xl font-bold text-slate-800 mb-2">Welcome to MDR Ops</h1>
+         <p className="text-slate-600 mb-8 max-w-sm">It looks like your inventory is empty. Let's load your optimized database from the spreadsheets.</p>
+         <button 
+           onClick={seedData}
+           className="bg-blue-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:bg-blue-700 transition-all"
+         >
+           Initialize Database
+         </button>
+       </div>
+     )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-slate-900 text-white p-1.5 rounded-lg">
+              <ChefHat size={20} />
+            </div>
+            <span className="font-bold text-lg tracking-tight">MDR Office</span>
+          </div>
+          <div className="flex items-center gap-3">
+             <div className="text-right hidden sm:block">
+               <div className="text-xs font-bold text-slate-400 uppercase">Cycle 2</div>
+               <div className="text-xs text-green-600 font-semibold">Active</div>
+             </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-4xl mx-auto px-4 pt-6">
+        {activeTab === 'inventory' ? <InventoryView /> : <ShoppingListView />}
+      </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-2 z-30 safe-area-pb">
+        <div className="max-w-4xl mx-auto flex justify-around items-center">
+          <button 
+            onClick={() => setActiveTab('inventory')}
+            className={`flex flex-col items-center p-2 rounded-xl transition-colors ${activeTab === 'inventory' ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <Package size={24} />
+            <span className="text-[10px] font-bold mt-1">Inventory</span>
+          </button>
+          
+          <button 
+            onClick={() => setActiveTab('shop')}
+            className={`flex flex-col items-center p-2 rounded-xl transition-colors relative ${activeTab === 'shop' ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <div className="relative">
+              <ShoppingCart size={24} />
+              {shoppingList.length > 0 && (
+                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
+                  {shoppingList.length}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] font-bold mt-1">Orders</span>
+          </button>
+        </div>
+      </nav>
+
+      <AddItemModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onAdd={addItem} 
+      />
+    </div>
+  );
+}
