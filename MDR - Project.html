@@ -1,566 +1,449 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Package, 
-  ShoppingCart, 
-  Plus, 
-  Trash2, 
-  RefreshCw, 
-  ChefHat, 
-  CheckCircle, 
-  AlertCircle, 
-  Search,
-  Filter,
-  DollarSign,
-  TrendingUp,
-  Save,
-  X
-} from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithCustomToken, 
-  signInAnonymously, 
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  orderBy,
-  serverTimestamp,
-  updateDoc,
-  getDocs,
-  writeBatch
-} from 'firebase/firestore';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDR Private Office | Invisible Precision</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-// --- Constants & Types ---
-const CATEGORIES = [
-  'Protein', 'Produce', 'Pantry', 'Dairy', 'Household', 'Snacks', 'Beverage', 'Health', 'Ops'
-];
-
-const STORES = [
-  'Spar', 'Checkers', 'Woolworths', 'Fruit Market', 'West Pack', 'Pharmacy', 'Other'
-];
-
-const INITIAL_DATA = [
-  { name: 'Eggs (Large)', category: 'Protein', stock: 'high', store: 'Spar', price: 59.99, unit: '30 Doz' },
-  { name: 'Rotisserie Chicken', category: 'Protein', stock: 'high', store: 'Spar', price: 109.99, unit: 'Each' },
-  { name: 'Bananas', category: 'Produce', stock: 'medium', store: 'Spar', price: 19.99, unit: 'Box/Bunch' },
-  { name: 'Dates', category: 'Pantry', stock: 'high', store: 'Fruit Market', price: 99.00, unit: '1kg' },
-  { name: 'Oats (Rolled)', category: 'Pantry', stock: 'high', store: 'Fruit Market', price: 39.99, unit: '1kg' },
-  { name: 'Toilet Tissue', category: 'Household', stock: 'medium', store: 'West Pack', price: 39.50, unit: '9pk' },
-  { name: 'Pilchards', category: 'Protein', stock: 'medium', store: 'Spar', price: 27.00, unit: 'Tin' },
-  { name: 'Brown Bread', category: 'Pantry', stock: 'high', store: 'Spar', price: 11.99, unit: 'Loaf' },
-  { name: 'Milk (Full Cream)', category: 'Dairy', stock: 'medium', store: 'Checkers', price: 18.99, unit: '2L' },
-];
-
-// --- Components ---
-
-const StatusBadge = ({ status }) => {
-  const styles = {
-    high: 'bg-green-100 text-green-800 border-green-200',
-    medium: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    low: 'bg-orange-100 text-orange-800 border-orange-200',
-    out: 'bg-red-100 text-red-800 border-red-200',
-  };
-  
-  const labels = {
-    high: 'In Stock',
-    medium: 'OK',
-    low: 'Low',
-    out: 'Out of Stock'
-  };
-
-  return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${styles[status] || styles.high}`}>
-      {labels[status]}
-    </span>
-  );
-};
-
-const AddItemModal = ({ isOpen, onClose, onAdd }) => {
-  const [newItem, setNewItem] = useState({
-    name: '',
-    category: 'Pantry',
-    store: 'Spar',
-    price: '',
-    unit: ''
-  });
-
-  if (!isOpen) return null;
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onAdd({
-      ...newItem,
-      price: parseFloat(newItem.price) || 0,
-      stock: 'high' // Default new items to high stock
-    });
-    setNewItem({ name: '', category: 'Pantry', store: 'Spar', price: '', unit: '' });
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="font-semibold text-lg text-slate-800">Add New Inventory Item</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Item Name</label>
-            <input 
-              required
-              type="text" 
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="e.g., Greek Yoghurt"
-              value={newItem.name}
-              onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-              <select 
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                value={newItem.category}
-                onChange={(e) => setNewItem({...newItem, category: e.target.value})}
-              >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Store</label>
-              <select 
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                value={newItem.store}
-                onChange={(e) => setNewItem({...newItem, store: e.target.value})}
-              >
-                {STORES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Est. Price (R)</label>
-              <input 
-                type="number" 
-                step="0.01"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="0.00"
-                value={newItem.price}
-                onChange={(e) => setNewItem({...newItem, price: e.target.value})}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
-              <input 
-                type="text" 
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="e.g. kg, box"
-                value={newItem.unit}
-                onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
-              />
-            </div>
-          </div>
-          <button 
-            type="submit" 
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors mt-4"
-          >
-            Add to Library
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// --- Main App Component ---
-
-export default function HouseholdOpsApp() {
-  const [user, setUser] = useState(null);
-  const [items, setItems] = useState([]);
-  const [activeTab, setActiveTab] = useState('inventory');
-  const [filterCategory, setFilterCategory] = useState('All');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // --- Auth & Data Loading ---
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Playfair Display', 'serif'],
+                    },
+                    colors: {
+                        navy: {
+                            800: '#1e3a8a',
+                            900: '#0f172a',
+                        },
+                        gold: {
+                            400: '#d4af37',
+                            500: '#c5a028',
+                        }
+                    }
+                }
+            }
         }
-      } catch (error) {
-        console.error("Auth Error:", error);
-      }
-    };
-    initAuth();
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-
-    return () => unsubscribeAuth();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-    const unsubscribeData = onSnapshot(q, (snapshot) => {
-      const inventoryData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setItems(inventoryData);
-      setIsLoading(false);
-    }, (error) => {
-      console.error("Data Fetch Error:", error);
-      setIsLoading(false);
-    });
-
-    return () => unsubscribeData();
-  }, [user]);
-
-  // --- Actions ---
-
-  const seedData = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    const batch = writeBatch(db);
-    
-    INITIAL_DATA.forEach(item => {
-      const docRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-      batch.set(docRef, { ...item, updatedAt: serverTimestamp() });
-    });
-
-    try {
-      await batch.commit();
-      setIsLoading(false);
-    } catch (e) {
-      console.error("Seeding error", e);
-      setIsLoading(false);
-    }
-  };
-
-  const updateStock = async (id, newStatus) => {
-    if (!user) return;
-    try {
-      const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id);
-      await updateDoc(itemRef, { 
-        stock: newStatus,
-        updatedAt: serverTimestamp() 
-      });
-    } catch (e) {
-      console.error("Update error", e);
-    }
-  };
-
-  const addItem = async (itemData) => {
-    if (!user) return;
-    try {
-      await setDoc(doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory')), {
-        ...itemData,
-        updatedAt: serverTimestamp()
-      });
-    } catch (e) {
-      console.error("Add error", e);
-    }
-  };
-
-  const deleteItem = async (id) => {
-    if (!user) return;
-    if (confirm('Delete this item permanently?')) {
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id));
-      } catch (e) { console.error(e); }
-    }
-  };
-
-  const markPurchased = async (id) => {
-    // When bought, reset stock to 'high'
-    await updateStock(id, 'high');
-  };
-
-  // --- Derived Data ---
-
-  const filteredItems = items.filter(item => {
-    const matchesCategory = filterCategory === 'All' || item.category === filterCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
-
-  const shoppingList = items.filter(item => item.stock === 'low' || item.stock === 'out');
-  const estimatedTotal = shoppingList.reduce((sum, item) => sum + (item.price || 0), 0);
-
-  // --- Views ---
-
-  const InventoryView = () => (
-    <div className="space-y-4 pb-24">
-      <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
-        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-          <button 
-            onClick={() => setFilterCategory('All')}
-            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filterCategory === 'All' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
-          >
-            All Items
-          </button>
-          {CATEGORIES.map(cat => (
-            <button 
-              key={cat} 
-              onClick={() => setFilterCategory(cat)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${filterCategory === cat ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200'}`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+    </script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            color: #1e293b;
+            overflow-x: hidden;
+        }
+        .fade-in-up {
+            animation: fadeInUp 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .delay-200 { animation-delay: 0.2s; }
+        .delay-400 { animation-delay: 0.4s; }
         
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search pantry..." 
-            className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
+        /* Smooth scrolling */
+        html { scroll-behavior: smooth; }
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filteredItems.map(item => (
-          <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between transition-all hover:shadow-md">
-            <div>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-semibold text-slate-800 text-lg">{item.name}</h3>
-                  <p className="text-xs text-slate-500 font-medium">{item.category} • {item.store}</p>
+        /* Chart Container Strict Styling */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Navigation -->
+    <nav id="navbar" class="fixed w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-100 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
+            <!-- Logo Area -->
+            <div class="flex items-center gap-4">
+                <div class="text-navy-900 text-2xl">
+                    <i class="fa-solid fa-shield-halved"></i>
                 </div>
-                <StatusBadge status={item.stock} />
-              </div>
-              <div className="text-xs text-slate-400 mb-4">
-                 Unit: {item.unit || '-'} | Est: R{item.price?.toFixed(2)}
-              </div>
+                <div class="flex flex-col">
+                    <span class="text-2xl font-serif font-semibold tracking-tight text-navy-900">MDR</span>
+                </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-auto">
-              <button 
-                onClick={() => updateStock(item.id, 'high')}
-                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'high' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-green-100 hover:text-green-700'}`}
-              >
-                In Stock
-              </button>
-              <button 
-                onClick={() => updateStock(item.id, 'low')}
-                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'low' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-orange-100 hover:text-orange-700'}`}
-              >
-                Low
-              </button>
-              <button 
-                onClick={() => updateStock(item.id, 'out')}
-                className={`py-2 rounded-lg text-xs font-semibold transition-colors ${item.stock === 'out' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-700'}`}
-              >
-                Empty
-              </button>
+            <!-- Desktop Menu -->
+            <div class="hidden md:flex items-center gap-12 text-sm font-medium text-slate-500 tracking-wide">
+                <a href="#philosophy" class="hover:text-navy-900 transition-colors">Philosophy</a>
+                <a href="#cycle" class="hover:text-navy-900 transition-colors">The Cycle</a>
+                <a href="#impact" class="hover:text-navy-900 transition-colors">Impact</a>
+                <button onclick="scrollToPortal()" class="px-6 py-3 bg-navy-900 text-white rounded-sm hover:bg-slate-800 transition-colors duration-300 shadow-sm">
+                    Staff Portal
+                </button>
             </div>
-          </div>
-        ))}
-        {filteredItems.length === 0 && (
-          <div className="col-span-full text-center py-12 text-slate-400">
-            <Package className="mx-auto mb-2 opacity-50" size={48} />
-            <p>No items found. Add some or check filters.</p>
-          </div>
-        )}
-      </div>
-      <button 
-        onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-24 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-transform hover:scale-105 z-20"
-      >
-        <Plus size={24} />
-      </button>
-    </div>
-  );
 
-  const ShoppingListView = () => (
-    <div className="space-y-6 pb-24">
-      <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg">
-        <h2 className="text-2xl font-bold mb-1">Shopping List</h2>
-        <p className="text-indigo-100 text-sm mb-4">Items marked Low or Out</p>
-        <div className="flex justify-between items-end">
-          <div>
-            <div className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">Est. Total</div>
-            <div className="text-3xl font-bold">R {estimatedTotal.toFixed(2)}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-3xl font-bold">{shoppingList.length}</div>
-            <div className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">Items</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {shoppingList.length === 0 ? (
-          <div className="text-center py-12 px-4">
-             <CheckCircle className="mx-auto mb-4 text-green-500" size={48} />
-             <h3 className="text-lg font-medium text-slate-800">All Stocked Up!</h3>
-             <p className="text-slate-500">Inventory is healthy. No items marked as Low or Out.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {shoppingList.map(item => (
-              <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <button 
-                    onClick={() => markPurchased(item.id)}
-                    className="h-6 w-6 rounded-full border-2 border-slate-300 hover:border-green-500 hover:bg-green-50 transition-colors flex items-center justify-center group"
-                    title="Mark Purchased"
-                  >
-                     <CheckCircle size={14} className="opacity-0 group-hover:opacity-100 text-green-600" />
-                  </button>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{item.name}</span>
-                      {item.stock === 'out' && (
-                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold uppercase tracking-wide">
-                          Critical
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {item.store} • R{item.price?.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                   <button 
-                     onClick={() => deleteItem(item.id)} 
-                     className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                   >
-                     <Trash2 size={16} />
-                   </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      
-      {shoppingList.length > 0 && (
-         <div className="flex justify-center">
-            <button onClick={() => window.print()} className="flex items-center gap-2 text-slate-500 hover:text-slate-700 text-sm font-medium">
-               <Save size={16} /> Print / Save PDF
+            <!-- Mobile Menu Toggle (Simplified) -->
+            <button class="md:hidden text-navy-900 text-xl">
+                <i class="fa-solid fa-bars"></i>
             </button>
-         </div>
-      )}
-    </div>
-  );
-
-  // --- Render ---
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="h-12 w-12 bg-blue-200 rounded-full mb-4"></div>
-          <div className="h-4 w-32 bg-slate-200 rounded"></div>
         </div>
-      </div>
-    );
-  }
+    </nav>
 
-  // First run seeding
-  if (items.length === 0 && !isLoading) {
-     return (
-       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
-         <ChefHat size={64} className="text-blue-600 mb-6" />
-         <h1 className="text-2xl font-bold text-slate-800 mb-2">Welcome to MDR Ops</h1>
-         <p className="text-slate-600 mb-8 max-w-sm">It looks like your inventory is empty. Let's load your optimized database from the spreadsheets.</p>
-         <button 
-           onClick={seedData}
-           className="bg-blue-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:bg-blue-700 transition-all"
-         >
-           Initialize Database
-         </button>
-       </div>
-     )
-  }
+    <!-- Hero Section -->
+    <header class="relative h-screen min-h-[700px] flex items-center justify-center overflow-hidden bg-slate-900">
+        <!-- Background Image -->
+        <div class="absolute inset-0 z-0 opacity-60">
+             <img src="https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?q=80&w=2000&auto=format&fit=crop" 
+                  alt="Modern minimalist architecture" 
+                  class="w-full h-full object-cover">
+        </div>
+        <!-- Gradient Overlay -->
+        <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent z-10"></div>
 
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-slate-900 text-white p-1.5 rounded-lg">
-              <ChefHat size={20} />
+        <div class="relative z-20 text-center px-6 max-w-4xl mx-auto mt-12">
+            <p class="fade-in-up text-xs md:text-sm font-bold tracking-[0.3em] uppercase text-gold-400 mb-6">Private Residence Network</p>
+            <h1 class="fade-in-up delay-200 text-5xl md:text-7xl text-white font-serif font-medium leading-tight mb-8">
+                Invisible Precision.
+            </h1>
+            <p class="fade-in-up delay-400 text-lg md:text-xl text-slate-200 font-light max-w-2xl mx-auto mb-12 leading-relaxed">
+                Moving beyond management to stewardship. We curate an environment where life flows effortlessly, orchestrated by silent systems and exceptional standards.
+            </p>
+            <div class="fade-in-up delay-400 flex flex-col md:flex-row gap-4 justify-center">
+                <a href="#philosophy" class="px-8 py-4 bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-white hover:text-navy-900 transition-all duration-300 rounded-sm font-medium min-w-[160px]">
+                    Explore the Standard
+                </a>
             </div>
-            <span className="font-bold text-lg tracking-tight">MDR Office</span>
-          </div>
-          <div className="flex items-center gap-3">
-             <div className="text-right hidden sm:block">
-               <div className="text-xs font-bold text-slate-400 uppercase">Cycle 2</div>
-               <div className="text-xs text-green-600 font-semibold">Active</div>
-             </div>
-          </div>
         </div>
-      </header>
+    </header>
 
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 pt-6">
-        {activeTab === 'inventory' ? <InventoryView /> : <ShoppingListView />}
-      </main>
-
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-2 z-30 safe-area-pb">
-        <div className="max-w-4xl mx-auto flex justify-around items-center">
-          <button 
-            onClick={() => setActiveTab('inventory')}
-            className={`flex flex-col items-center p-2 rounded-xl transition-colors ${activeTab === 'inventory' ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <Package size={24} />
-            <span className="text-[10px] font-bold mt-1">Inventory</span>
-          </button>
-          
-          <button 
-            onClick={() => setActiveTab('shop')}
-            className={`flex flex-col items-center p-2 rounded-xl transition-colors relative ${activeTab === 'shop' ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            <div className="relative">
-              <ShoppingCart size={24} />
-              {shoppingList.length > 0 && (
-                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full">
-                  {shoppingList.length}
-                </span>
-              )}
+    <!-- Section 1: The Philosophy -->
+    <section id="philosophy" class="py-32 bg-white">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid md:grid-cols-2 gap-20 items-center">
+                <div class="order-2 md:order-1 relative">
+                    <span class="text-slate-100 text-9xl font-serif italic absolute -top-20 -left-10 z-0 select-none">01</span>
+                    <div class="relative z-10">
+                        <h2 class="text-4xl font-serif text-navy-900 mb-8">The Luxury of Flow</h2>
+                        <div class="w-12 h-[1px] bg-navy-900 mb-8"></div>
+                        <p class="text-slate-600 text-lg leading-relaxed mb-6 font-light">
+                            True luxury is the absence of friction. It is the coffee ready before you ask, the pantry stocked before you notice, and the home that functions as a single, cohesive organism.
+                        </p>
+                        <p class="text-slate-600 text-lg leading-relaxed font-light">
+                            At MDR, we believe that the complexity of managing a global residence network should be completely invisible. We replace reactive chaos with <strong>proactive stewardship</strong>.
+                        </p>
+                    </div>
+                </div>
+                <div class="order-1 md:order-2 h-[500px] bg-slate-100 overflow-hidden relative shadow-2xl shadow-slate-200/50">
+                    <img src="https://images.unsplash.com/photo-1556910103-1c02745a30bf?q=80&w=2000&auto=format&fit=crop" 
+                         alt="Pristine Kitchen Detail" 
+                         class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700">
+                </div>
             </div>
-            <span className="text-[10px] font-bold mt-1">Orders</span>
-          </button>
         </div>
-      </nav>
+    </section>
 
-      <AddItemModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onAdd={addItem} 
-      />
-    </div>
-  );
-}
+    <!-- Section 2: Interactive Cycle (The Methodology) -->
+    <section id="cycle" class="py-24 bg-slate-50 border-t border-slate-200">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-16">
+                <span class="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Methodology</span>
+                <h2 class="text-3xl md:text-4xl font-serif text-navy-900">The MDR Cycle</h2>
+                <p class="mt-4 text-slate-500 max-w-2xl mx-auto font-light">
+                    We have moved from "as-needed" chaos to a strict weekly rhythm. Click a stage to understand the workflow.
+                </p>
+            </div>
+
+            <!-- Interactive Timeline Component -->
+            <div class="max-w-5xl mx-auto">
+                <!-- Tabs -->
+                <div class="flex flex-wrap justify-center gap-4 mb-12" id="cycleTabs">
+                    <button onclick="updateCycle(0)" class="cycle-tab px-6 py-3 border-b-2 border-navy-900 text-navy-900 font-medium transition-all" data-index="0">1. Review</button>
+                    <button onclick="updateCycle(1)" class="cycle-tab px-6 py-3 border-b-2 border-transparent text-slate-400 hover:text-navy-900 transition-all" data-index="1">2. Plan</button>
+                    <button onclick="updateCycle(2)" class="cycle-tab px-6 py-3 border-b-2 border-transparent text-slate-400 hover:text-navy-900 transition-all" data-index="2">3. Execute</button>
+                    <button onclick="updateCycle(3)" class="cycle-tab px-6 py-3 border-b-2 border-transparent text-slate-400 hover:text-navy-900 transition-all" data-index="3">4. Optimize</button>
+                </div>
+
+                <!-- Content Area -->
+                <div class="bg-white p-8 md:p-12 shadow-lg shadow-slate-200/50 flex flex-col md:flex-row gap-10 items-center">
+                    <div class="md:w-1/3 flex justify-center">
+                        <div id="cycleIcon" class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center text-navy-900 text-3xl shadow-inner">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </div>
+                    </div>
+                    <div class="md:w-2/3">
+                        <h3 id="cycleTitle" class="text-2xl font-serif text-navy-900 mb-4">Weekly Audit</h3>
+                        <p id="cycleDesc" class="text-slate-600 leading-relaxed font-light mb-6">
+                            Every Monday, the Chef and House Manager conduct a physical walkthrough of the pantry, fridge, and cellar. Using the MDR App, they verify stock levels against the digital baseline to identify discrepancies before they become shortages.
+                        </p>
+                        <div class="flex gap-4 text-sm text-slate-500">
+                            <span class="flex items-center gap-2"><i class="fa-regular fa-calendar"></i> <span id="cycleDay">Monday Morning</span></span>
+                            <span class="flex items-center gap-2"><i class="fa-solid fa-user"></i> <span id="cycleOwner">Chef & Manager</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 3: Financial Stewardship (Data Viz) -->
+    <section id="impact" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid md:grid-cols-2 gap-16 items-center">
+                <div>
+                    <span class="text-xs font-bold tracking-[0.2em] uppercase text-slate-400 mb-3 block">Efficacy</span>
+                    <h2 class="text-3xl md:text-4xl font-serif text-navy-900 mb-6">Quantifiable Stewardship</h2>
+                    <p class="text-slate-600 text-lg leading-relaxed mb-8 font-light">
+                        By eliminating last-minute "convenience" shopping and enforcing strict inventory controls, MDR Operations significantly reduces waste and procurement overhead.
+                    </p>
+                    
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-start gap-4">
+                            <div class="mt-1 text-gold-500"><i class="fa-solid fa-check"></i></div>
+                            <div>
+                                <strong class="block text-navy-900">Consolidated Procurement</strong>
+                                <span class="text-slate-500 text-sm">One primary shop per week reduces delivery fees and impulse buys.</span>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-4">
+                            <div class="mt-1 text-gold-500"><i class="fa-solid fa-check"></i></div>
+                            <div>
+                                <strong class="block text-navy-900">Waste Reduction</strong>
+                                <span class="text-slate-500 text-sm">Inventory visibility prevents over-purchasing of perishables.</span>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Chart Container -->
+                <div class="bg-slate-50 p-6 rounded-lg border border-slate-100">
+                    <h3 class="text-center text-sm font-bold uppercase tracking-widest text-slate-400 mb-6">Operational Efficiency Metrics</h3>
+                    <div class="chart-container">
+                        <canvas id="impactChart"></canvas>
+                    </div>
+                    <div class="text-center mt-4 text-xs text-slate-400 italic">
+                        *Comparison: Traditional Ad-Hoc vs. MDR Cyclical Model
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 4: Portal Entry -->
+    <section id="portal" class="py-32 bg-navy-900 text-white relative overflow-hidden">
+        <!-- Subtle Pattern -->
+        <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: radial-gradient(#ffffff 1px, transparent 1px); background-size: 30px 30px;"></div>
+
+        <div class="max-w-4xl mx-auto px-6 text-center relative z-10">
+            <div class="mb-8 text-gold-400 text-4xl">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 class="text-4xl md:text-5xl font-serif font-medium mb-6">Operational Control</h2>
+            <p class="text-slate-300 text-lg font-light mb-12 max-w-2xl mx-auto">
+                Authorized access for Chefs and House Managers. Manage live inventory, approve procurement lists, and view operational cycles.
+            </p>
+            <div class="flex flex-col items-center gap-4">
+                <a href="#" class="inline-flex items-center gap-3 px-10 py-5 bg-white text-navy-900 font-bold tracking-wide rounded-sm hover:bg-slate-200 transition-colors duration-300 shadow-xl">
+                    <span>ACCESS STAFF PORTAL</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </a>
+                <span class="text-xs text-slate-500 uppercase tracking-widest mt-4">Secure Environment • Staff Only</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-white py-20 border-t border-slate-100">
+        <div class="max-w-7xl mx-auto px-6 flex flex-col items-center justify-center text-center">
+            
+            <div class="mb-8 text-navy-900 opacity-80 text-3xl">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            
+            <h3 class="text-2xl text-navy-900 font-serif mb-2">MDR Private Office</h3>
+            <p class="text-slate-400 font-light mb-10">Johannesburg • Global Network</p>
+            
+            <div class="flex gap-8 text-sm font-medium text-slate-500 mb-12">
+                <a href="mailto:ops@mdr-office.private" class="hover:text-navy-900 transition-colors">Contact Operations</a>
+                <span class="text-slate-300">|</span>
+                <a href="#" class="hover:text-navy-900 transition-colors">Internal Policy</a>
+                <span class="text-slate-300">|</span>
+                <a href="#" class="hover:text-navy-900 transition-colors">Privacy</a>
+            </div>
+
+            <p class="text-xs text-slate-300 font-light">
+                &copy; 2025 MDR Private Office. All rights reserved. <br>
+                This system is for the exclusive use of the family and authorized staff.
+            </p>
+        </div>
+    </footer>
+
+    <!-- JavaScript for Interactions -->
+    <script>
+        // --- Cycle Interaction Data ---
+        const cycleSteps = [
+            {
+                title: "1. Review (Audit)",
+                desc: "Every Monday, the Chef and House Manager conduct a physical walkthrough of the pantry, fridge, and cellar. Using the MDR App, they verify stock levels against the digital baseline to identify discrepancies before they become shortages.",
+                icon: "fa-magnifying-glass",
+                day: "Monday Morning",
+                owner: "Chef & Manager"
+            },
+            {
+                title: "2. Plan (Menu & List)",
+                desc: "Based on the audit and the family's schedule, the Chef designs the weekly menu. The MDR App automatically generates a consolidated procurement list, categorizing items by supplier to maximize efficiency.",
+                icon: "fa-pen-to-square",
+                day: "Monday Afternoon",
+                owner: "Chef"
+            },
+            {
+                title: "3. Execute (Procurement)",
+                desc: "The House Manager executes the 'Big Shop' using the consolidated digital list. Items are checked off in real-time within the App, which instantly updates the inventory status back to 'In Stock' for the kitchen team.",
+                icon: "fa-cart-shopping",
+                day: "Tuesday",
+                owner: "House Manager"
+            },
+            {
+                title: "4. Optimize (Analytics)",
+                desc: "At the end of the week, the Private Office reviews consumption data and spend. This data informs budget adjustments and helps identify potential waste reduction opportunities for the next cycle.",
+                icon: "fa-chart-line",
+                day: "Friday",
+                owner: "Private Office"
+            }
+        ];
+
+        function updateCycle(index) {
+            // Update UI Tabs
+            const tabs = document.querySelectorAll('.cycle-tab');
+            tabs.forEach(t => {
+                t.classList.remove('border-navy-900', 'text-navy-900');
+                t.classList.add('border-transparent', 'text-slate-400');
+            });
+            const activeTab = document.querySelector(`.cycle-tab[data-index="${index}"]`);
+            activeTab.classList.remove('border-transparent', 'text-slate-400');
+            activeTab.classList.add('border-navy-900', 'text-navy-900');
+
+            // Update Content
+            const data = cycleSteps[index];
+            document.getElementById('cycleTitle').textContent = data.title;
+            document.getElementById('cycleDesc').textContent = data.desc;
+            document.getElementById('cycleDay').textContent = data.day;
+            document.getElementById('cycleOwner').textContent = data.owner;
+            
+            // Icon Animation
+            const iconContainer = document.getElementById('cycleIcon');
+            iconContainer.innerHTML = `<i class="fa-solid ${data.icon}"></i>`;
+            iconContainer.classList.remove('fade-in-up'); // reset animation
+            void iconContainer.offsetWidth; // trigger reflow
+            iconContainer.classList.add('fade-in-up');
+        }
+
+        // --- Chart.js Implementation ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('impactChart').getContext('2d');
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Procurement Cost', 'Food Waste', 'Admin Time'],
+                    datasets: [
+                        {
+                            label: 'Traditional Ad-Hoc',
+                            data: [100, 100, 100], // Baseline
+                            backgroundColor: '#cbd5e1', // Slate 300
+                            borderRadius: 4,
+                            barPercentage: 0.6
+                        },
+                        {
+                            label: 'MDR Cyclical Model',
+                            data: [82, 40, 50], // Savings
+                            backgroundColor: '#1e3a8a', // Navy 800
+                            borderRadius: 4,
+                            barPercentage: 0.6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: { family: 'Inter', size: 12 },
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleFont: { family: 'Playfair Display', size: 14 },
+                            bodyFont: { family: 'Inter', size: 12 },
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.datasetIndex === 1) {
+                                        const baseline = 100;
+                                        const savings = baseline - context.raw;
+                                        return `Reduced by ${savings}%`;
+                                    }
+                                    return 'Baseline (100%)';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { display: true, color: '#f1f5f9' },
+                            ticks: { display: false } // Hide numbers for cleaner look
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { family: 'Inter' } }
+                        }
+                    },
+                    animation: {
+                        duration: 2000,
+                        easing: 'easeOutQuart'
+                    }
+                }
+            });
+        });
+
+        // --- Smooth Scroll Function ---
+        function scrollToPortal() {
+            document.getElementById('portal').scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+
+    <!-- Placeholder Comments Required by Prompt -->
+    <!-- Chosen Palette: Navy Blue (#1e3a8a, #0f172a) and White/Slate, with Gold Accents. "Quiet Luxury" Theme. -->
+    <!-- Application Structure Plan: Landing page structure designed to build trust and authority. 1. Hero (Vision) -> 2. Philosophy (The 'Why') -> 3. Methodology/Interactive Cycle (The 'How') -> 4. Data Viz (The Result) -> 5. Portal Access (The Tool). Single page flow for ease of consumption. -->
+    <!-- Visualization & Content Choices: 
+         - Cycle Explorer: Interactive tabs to simplify the 4-step process into digestible bites without overwhelming text.
+         - Impact Chart: Chart.js Bar chart chosen to visually demonstrate the 'Before vs After' efficiency, reinforcing the financial value of the system.
+         - Typography: Playfair Display for headers to evoke 'Architectural Digest' style luxury.
+         - Icons: FontAwesome used for scalable, clean visual cues. NO SVG paths directly embedded. -->
+    <!-- CONFIRMATION: NO SVG graphics used (embedded paths). NO Mermaid JS used. FontAwesome and Chart.js Canvas used. -->
+</body>
+</html>
